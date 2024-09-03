@@ -1,0 +1,61 @@
+import pandas as pd
+import numpy as np
+from statsmodels.stats.power import NormalIndPower
+from statsmodels.stats.proportion import proportion_effectsize
+
+# Загрузка данных из CSV файла
+# Данные должны включать столбцы: Page, Users, Converters, Average Purchase Revenue
+df = pd.read_csv('CZV3.csv')
+
+# Просмотр данных перед применением фильтров
+print(df)
+
+# Параметры: MDE и уровень значимости
+mde = 0.10
+significance_level = 0.1
+
+#### Очистка данных
+# Выбор топ 100 страниц
+data = df.iloc[:100]
+
+# Удаление строк, где конверсии равны 0
+data = data[data['Converters'] != 0]
+
+# Оставление строк, где количество пользователей не равно количеству конверсий
+data = data[data['Users'] != data['Converters']]
+
+def calculate_sample_size(baseline_rate, MDE, power=0.80, sig_level=significance_level):
+    if baseline_rate <= 0 or baseline_rate >= 1:
+        raise ValueError("baseline_rate must be between 0 and 1")
+    effect_size = proportion_effectsize(baseline_rate, baseline_rate * (1 + MDE))
+    power_analysis = NormalIndPower()
+    sample_size = power_analysis.solve_power(effect_size=effect_size, power=power, alpha=sig_level, ratio=1.0)
+    return np.ceil(sample_size)
+
+# Функция для оценки времени тестирования
+def estimate_testing_time(sample_size, daily_traffic):
+    days_required = sample_size / daily_traffic
+    return np.ceil(days_required)
+
+# Добавление дополнительных расчетов в датафрейм
+data['baseline_cvr'] = data['Converters'] / data['Users']
+data['daily_users'] = data['Users'] / 365  # Расчет количества пользователей в день
+data['MDE'] = mde
+
+print(data)
+
+# Расчет необходимых выборок и времени тестирования
+data['sample_size'] = data.apply(lambda row: calculate_sample_size(row['baseline_cvr'], mde), axis=1)
+data['testing_days'] = data.apply(lambda row: estimate_testing_time(row['sample_size'], row['daily_users']), axis=1)
+data['testing_weeks'] = data['testing_days'] / 7
+
+# Расчет средних значений за неделю
+data['weekly_users'] = data['daily_users'] * 7
+data['weekly_conversions'] = (data['Converters'] / 365) * 7
+
+# Использование уже предоставленного среднего значения выручки за заказ
+data['AOV'] = data['Average Purchase Revenue']
+
+# Вывод
+final_data = data[['Page', 'weekly_users', 'weekly_conversions', 'AOV', 'testing_weeks']]
+print(final_data)
